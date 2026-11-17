@@ -9,6 +9,8 @@ ABSTAND = 220  # Vertikaler Abstand zwischen den Sternen.
 SPIELER_TEMPO = 6
 BOMBEN_INTERVALL = 5000  # Fünf Sekunden Spielzeit; bei höherem Tempo kürzer.
 BOMBEN_RADIUS = 18
+BOMBEN_SCHADEN = 2
+PUNKTE_PRO_EXTRA_BOMBE = 15
 
 
 HIGHSCORE_DATEI = Path(__file__).resolve().with_name("highscore.txt")
@@ -167,10 +169,13 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     spiel["bomben_zeit"] += schritt * (1000 / 60)
     while spiel["bomben_zeit"] >= BOMBEN_INTERVALL:
         spiel["bomben_zeit"] -= BOMBEN_INTERVALL
-        spiel["bomben"].append({
-            "x": random.randint(BOMBEN_RADIUS, BREITE - BOMBEN_RADIUS),
-            "y": float(-BOMBEN_RADIUS),
-        })
+        # 0–14 Punkte: 1 Bombe, 15–29: 2 Bomben, ab 30: 3 usw.
+        anzahl = 1 + spiel["punkte"] // PUNKTE_PRO_EXTRA_BOMBE
+        for _ in range(anzahl):
+            spiel["bomben"].append({
+                "x": random.randint(BOMBEN_RADIUS, BREITE - BOMBEN_RADIUS),
+                "y": float(-BOMBEN_RADIUS),
+            })
 
     for bombe in spiel["bomben"][:]:
         vorher_y = bombe["y"]
@@ -180,11 +185,11 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
         abstand_x = bombe["x"] - naechstes_x
         abstand_y = max(figur.top - bombe["y"], vorher_y - figur.bottom, 0)
         if abstand_x ** 2 + abstand_y ** 2 <= BOMBEN_RADIUS ** 2:
-            spiel["leben"] -= 1
+            spiel["leben"] = max(0, spiel["leben"] - BOMBEN_SCHADEN)
             ton_spielen("bombe")
             if spiel["leben"] == 0:
                 ton_spielen("sterben")
-            spiel["bomben"].remove(bombe)  # Jede Bombe kostet nur ein Leben.
+            spiel["bomben"].remove(bombe)  # Jede Bombe verursacht einmalig zwei Schaden.
             if spiel["leben"] == 0:
                 break
         elif bombe["y"] - BOMBEN_RADIUS >= HOEHE:
