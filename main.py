@@ -13,6 +13,10 @@ BOMBEN_SCHADEN = 2
 BOMBEN_ABSTAND_MIN = 200  # Zufälliger Abstand innerhalb einer Welle (Spielzeit in ms).
 BOMBEN_ABSTAND_MAX = 600
 PUNKTE_ERSTE_EXTRA_BOMBE = 15
+MAGNET_PUNKTE = 50
+MAGNET_DAUER_MS = 10000  # Echte Spielsekunden, unabhängig vom Zeitfaktor.
+MAGNET_RADIUS = 18
+MAGNET_ZUG = 1.2  # Sanfter horizontaler Zug; Sterne fallen weiterhin nach unten.
 
 
 HIGHSCORE_DATEI = Path(__file__).resolve().with_name("highscore.txt")
@@ -102,6 +106,9 @@ def neue_runde(highscore=None):
         "zeitfaktor": 1.0,
         "sterne": sterne,
         "bomben": [],
+        "magnete": [],
+        "magnet_rest_ms": 0.0,
+        "magnet_naechste_punkte": MAGNET_PUNKTE,
         "bomben_zeit": 0.0,
         "bomben_naechste_welle": float(BOMBEN_INTERVALL),
         "bomben_geplant": [],
@@ -152,9 +159,27 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     # Derselbe Faktor beschleunigt Spieler, Sterne, Bomben und Spawn-Timer.
     schritt = delta_ms / (1000 / 60) * spiel["zeitfaktor"]
     figur = spiel["figur"]
+    # Nur links/rechts; die Figur bleibt am unteren Rand.
     spiel["figur_x"] += (int(rechts) - int(links)) * SPIELER_TEMPO * schritt
     spiel["figur_x"] = max(0.0, min(BREITE - figur.width, spiel["figur_x"]))
-    figur.x = round(spiel["figur_x"])
+    figur.topleft = (round(spiel["figur_x"]), 550)
+    spiel["magnet_rest_ms"] = max(0.0, spiel["magnet_rest_ms"] - delta_ms)
+
+    # Einsammeln aktiviert den Magneten, nicht bereits das Erreichen von 50 Punkten.
+    for magnet in spiel["magnete"][:]:
+        vorher_y = magnet["y"]
+        magnet["y"] += spiel["tempo"] * schritt
+        bereich = pygame.Rect(
+            magnet["x"] - MAGNET_RADIUS, vorher_y - MAGNET_RADIUS,
+            MAGNET_RADIUS * 2,
+            math.ceil(magnet["y"] - vorher_y + MAGNET_RADIUS * 2),
+        )
+        if figur.colliderect(bereich):
+            spiel["magnet_rest_ms"] = float(MAGNET_DAUER_MS)
+            spiel["magnete"].remove(magnet)
+            ton_spielen("fangen")
+        elif magnet["y"] - MAGNET_RADIUS >= HOEHE:
+            spiel["magnete"].remove(magnet)  # Kein Lebensverlust bei verpasstem Bonus.
 
     spiel["ticks"] += 1
     if spiel["ticks"] % 60 == 0:
@@ -162,6 +187,10 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
 
     for stern in spiel["sterne"]:
         vorher_y = stern["y"]
+        if spiel["magnet_rest_ms"] > 0 and 0 <= stern["y"] <= figur.bottom:
+            abstand = figur.centerx - stern["x"]
+            zug = min(abs(abstand), MAGNET_ZUG * schritt)
+            stern["x"] += math.copysign(zug, abstand)
         stern["y"] += spiel["tempo"] * schritt
         # Überstrichener Bereich verhindert Durchrutschen bei hohem Tempo.
         trefferbereich = pygame.Rect(
@@ -170,6 +199,12 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
         )
         if figur.colliderect(trefferbereich):
             spiel["punkte"] += 1
+            while spiel["punkte"] >= spiel["magnet_naechste_punkte"]:
+                spiel["magnete"].append({
+                    "x": random.randint(MAGNET_RADIUS, BREITE - MAGNET_RADIUS),
+                    "y": float(-MAGNET_RADIUS),
+                })
+                spiel["magnet_naechste_punkte"] += MAGNET_PUNKTE
             ton_spielen("fangen")
             rekord_pruefen(spiel)
             if spiel["punkte"] % 5 == 0:
@@ -230,6 +265,18 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
             spiel["bomben"].remove(bombe)  # Ausweichen kostet keine Leben.
 
 
+def magnet_zeichnen(fenster, x, y):
+    """Kleines Hufeisen-Symbol; keine zusätzliche Bilddatei nötig."""
+    x, y = round(x), round(y)
+    pygame.draw.circle(fenster, (30, 70, 95), (x, y), 23)
+    pygame.draw.arc(fenster, (80, 230, 255), (x - 14, y - 12, 28, 28),
+                    math.pi, 2 * math.pi, 7)
+    pygame.draw.rect(fenster, (80, 230, 255), (x - 14, y - 12, 7, 15))
+    pygame.draw.rect(fenster, (80, 230, 255), (x + 7, y - 12, 7, 15))
+    pygame.draw.rect(fenster, (255, 100, 120), (x - 14, y - 14, 7, 7))
+    pygame.draw.rect(fenster, (240, 250, 255), (x + 7, y - 14, 7, 7))
+
+
 def zeichnen(fenster, schrift, spiel):
     fenster.fill((10, 20, 50))
     if not spiel["gestartet"]:
@@ -238,14 +285,22 @@ def zeichnen(fenster, schrift, spiel):
         fenster.blit(titel, titel.get_rect(center=(BREITE // 2, 205)))
         for text, y, farbe in [
             ("Drücke Leertaste zum starten", 295, (255, 255, 255)),
-            ("Pfeiltasten / A und D: bewegen", 355, (160, 205, 255)),
+            ("A/D oder Links/Rechts: bewegen", 355, (160, 205, 255)),
             ("Roten Bomben ausweichen!", 395, (255, 130, 130)),
-            (f'Highscore: {spiel["highscore"]}', 465, (255, 220, 50)),
+            ("Alle 50 Punkte: Magnet fangen (10 s)", 430, (100, 235, 255)),
+            (f'Highscore: {spiel["highscore"]}', 475, (255, 220, 50)),
         ]:
             bild = schrift.render(text, True, farbe)
             fenster.blit(bild, bild.get_rect(center=(BREITE // 2, y)))
         return
+    if spiel["magnet_rest_ms"] > 0:
+        pygame.draw.ellipse(fenster, (70, 210, 240), spiel["figur"].inflate(24, 18), 2)
     fenster.blit(BILDER["figur"], spiel["figur"])
+    for magnet in spiel["magnete"]:
+        magnet_zeichnen(fenster, magnet["x"], magnet["y"])
+    if spiel["magnet_rest_ms"] > 0:
+        text = f'Magnet: {spiel["magnet_rest_ms"] / 1000:.1f} s'
+        fenster.blit(schrift.render(text, True, (100, 235, 255)), (20, 100))
     for stern in spiel["sterne"]:
         bild = BILDER["stern"]
         fenster.blit(bild, bild.get_rect(center=(round(stern["x"]), round(stern["y"]))))
