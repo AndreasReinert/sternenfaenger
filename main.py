@@ -12,7 +12,7 @@ BOMBEN_RADIUS = 18
 BOMBEN_SCHADEN = 2
 BOMBEN_ABSTAND_MIN = 200  # Zufälliger Abstand innerhalb einer Welle (Spielzeit in ms).
 BOMBEN_ABSTAND_MAX = 600
-PUNKTE_PRO_EXTRA_BOMBE = 15
+PUNKTE_ERSTE_EXTRA_BOMBE = 15
 
 
 HIGHSCORE_DATEI = Path(__file__).resolve().with_name("highscore.txt")
@@ -129,6 +129,23 @@ def stern_neu_starten(stern, spiel):
     stern["x"] = random.randint(links, rechts)
 
 
+def bombenanzahl(punkte):
+    """Je Welle eine Grundbombe; weitere nach wachsenden Punkteabständen.
+
+    Abstände: 15, 18, 22, 27, ... (jeweils +20 %, auf ganze Punkte aufgerundet).
+    Damit steigen die Bombenanzahlen bei insgesamt 15, 33, 55, 82, ... Punkten.
+    """
+    anzahl = 1
+    abstand = PUNKTE_ERSTE_EXTRA_BOMBE
+    schwelle = abstand
+    while punkte >= schwelle:
+        anzahl += 1
+        # Exakt aufrunden, ohne Gleitkomma-Rundungsfehler: ceil(abstand * 1.2).
+        abstand = (abstand * 6 + 4) // 5
+        schwelle += abstand
+    return anzahl
+
+
 def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     if not spiel["gestartet"] or spiel["leben"] <= 0:
         return
@@ -175,7 +192,7 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     while spiel["bomben_zeit"] >= spiel["bomben_naechste_welle"]:
         startzeit = spiel["bomben_naechste_welle"]
         spiel["bomben_naechste_welle"] += BOMBEN_INTERVALL
-        anzahl = 1 + spiel["punkte"] // PUNKTE_PRO_EXTRA_BOMBE
+        anzahl = bombenanzahl(spiel["punkte"])
         for _ in range(anzahl):
             startzeit += random.randint(BOMBEN_ABSTAND_MIN, BOMBEN_ABSTAND_MAX)
             spiel["bomben_geplant"].append(startzeit)
