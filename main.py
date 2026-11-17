@@ -267,11 +267,33 @@ def zeichnen(fenster, schrift, spiel):
             fenster.blit(bild, bild.get_rect(center=(400, y)))
 
 
+def passende_fenstergroesse(bildschirm_breite, bildschirm_hoehe):
+    """90 Prozent des Bildschirms nutzen: Platz für Taskleiste und Fensterrand."""
+    faktor = min(bildschirm_breite * 0.9 / BREITE,
+                 bildschirm_hoehe * 0.9 / HOEHE)
+    return max(1, int(BREITE * faktor)), max(1, int(HOEHE * faktor))
+
+
+def spielfeld_anzeigen(fenster, spielfeld):
+    """Logische 800 x 600 beibehalten; Bild proportional ins Fenster einpassen."""
+    breite, hoehe = fenster.get_size()
+    faktor = min(breite / BREITE, hoehe / HOEHE)
+    ziel = (max(1, int(BREITE * faktor)), max(1, int(HOEHE * faktor)))
+    bild = pygame.transform.smoothscale(spielfeld, ziel)
+    fenster.fill((5, 10, 25))
+    fenster.blit(bild, ((breite - ziel[0]) // 2, (hoehe - ziel[1]) // 2))
+
+
 def main():
     pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
     toene_vorbereiten()
-    fenster = pygame.display.set_mode((BREITE, HOEHE))
+    bildschirm = pygame.display.get_desktop_sizes()[0]
+    fenster = pygame.display.set_mode(
+        passende_fenstergroesse(*bildschirm), pygame.RESIZABLE
+    )
+    # Physik und Treffererkennung bleiben unabhängig von der Bildschirmauflösung.
+    spielfeld = pygame.Surface((BREITE, HOEHE)).convert()
     bilder_laden()
     pygame.display.set_caption("Sternenfänger")
     schrift = pygame.font.Font(None, 36)
@@ -301,7 +323,8 @@ def main():
             tasten[pygame.K_RIGHT] or tasten[pygame.K_d],
             delta_ms,
         )
-        zeichnen(fenster, schrift, spiel)
+        zeichnen(spielfeld, schrift, spiel)
+        spielfeld_anzeigen(fenster, spielfeld)
         pygame.display.flip()
     pygame.quit()
 
