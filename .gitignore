@@ -1,0 +1,25 @@
+# Virtuelle Python-Umgebungen
+.venv/
+venv/
+env/
+
+# Python-Cache und kompilierte Dateien
+__pycache__/
+*.py[cod]
+
+# Lokale Zugangsdaten – niemals veröffentlichen
+.env
+.env.*
+!.env.example
+
+# Lokale Editor-Einstellungen
+.vscode/
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
+
+# Build-Ausgaben
+build/
+dist/
+*.egg-info/
