@@ -1,5 +1,6 @@
 import math
 import random
+from pathlib import Path
 import pygame
 
 BREITE, HOEHE = 800, 600
@@ -10,7 +11,36 @@ BOMBEN_INTERVALL = 5000  # Eine neue Bombe alle fünf Sekunden.
 BOMBEN_RADIUS = 18
 
 
-def neue_runde():
+HIGHSCORE_DATEI = Path(__file__).resolve().with_name("highscore.txt")
+
+
+def highscore_laden():
+    """Fehlende oder ungültige Dateien bedeuten: noch kein Rekord."""
+    try:
+        return max(0, int(HIGHSCORE_DATEI.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def highscore_speichern(punkte):
+    """Erst temporär schreiben, dann die alte Datei sicher ersetzen."""
+    try:
+        temporaer = HIGHSCORE_DATEI.with_suffix(".tmp")
+        temporaer.write_text(str(punkte), encoding="utf-8")
+        temporaer.replace(HIGHSCORE_DATEI)
+        return True
+    except OSError as fehler:
+        print(f"Highscore konnte nicht gespeichert werden: {fehler}")
+        return False
+
+
+def rekord_pruefen(spiel):
+    if spiel["punkte"] > spiel["highscore"]:
+        spiel["highscore"] = spiel["punkte"]
+        spiel["speicherfehler"] = not highscore_speichern(spiel["highscore"])
+
+
+def neue_runde(highscore=None):
     """Alle Werte inklusive Geschwindigkeit und Sternpositionen zurücksetzen."""
     sterne = [
         {"x": 400, "y": float(-RADIUS - i * ABSTAND)}
@@ -25,6 +55,8 @@ def neue_runde():
         "bomben": [],
         "bomben_zeit": 0.0,
         "punkte": 0,
+        "highscore": highscore_laden() if highscore is None else highscore,
+        "speicherfehler": False,
         "leben": 5,
         "ticks": 0,
         "tempo": 3.0,
@@ -67,6 +99,7 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
         )
         if figur.colliderect(trefferbereich):
             spiel["punkte"] += 1
+            rekord_pruefen(spiel)
             if spiel["punkte"] % 5 == 0:
                 spiel["tempo"] *= 1.002  # Zusätzlich +0,2 % je 5 Punkte.
             stern_neu_starten(stern, spiel)
@@ -125,6 +158,11 @@ def zeichnen(fenster, schrift, spiel):
     for text, y in [(f'Punkte: {spiel["punkte"]}', 20),
                     (f'Leben: {spiel["leben"]}', 60)]:
         fenster.blit(schrift.render(text, True, "white"), (20, y))
+    rekord = schrift.render(f'Highscore: {spiel["highscore"]}', True, (255, 220, 50))
+    fenster.blit(rekord, rekord.get_rect(topright=(BREITE - 20, 20)))
+    if spiel["speicherfehler"]:
+        warnung = schrift.render("Highscore nicht gespeichert!", True, (255, 150, 150))
+        fenster.blit(warnung, (20, 100))
     if spiel["leben"] == 0:
         for text, y in [("Game Over", 280),
                         ("Leertaste: neue Runde", 325)]:
@@ -147,7 +185,10 @@ def main():
                 laeuft = False
             elif (ereignis.type == pygame.KEYDOWN
                   and ereignis.key == pygame.K_SPACE and spiel["leben"] == 0):
-                spiel = neue_runde()
+                alter_rekord = spiel["highscore"]
+                speicherfehler = spiel["speicherfehler"]
+                spiel = neue_runde(alter_rekord)
+                spiel["speicherfehler"] = speicherfehler
         if not laeuft:
             break
         tasten = pygame.key.get_pressed()
