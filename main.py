@@ -6,6 +6,8 @@ BREITE, HOEHE = 800, 600
 RADIUS = 18
 ABSTAND = 220  # Vertikaler Abstand zwischen den Sternen.
 SPIELER_TEMPO = 6
+BOMBEN_INTERVALL = 5000  # Eine neue Bombe alle fünf Sekunden.
+BOMBEN_RADIUS = 18
 
 
 def neue_runde():
@@ -20,6 +22,8 @@ def neue_runde():
     return {
         "figur": pygame.Rect(350, 550, 100, 25),
         "sterne": sterne,
+        "bomben": [],
+        "bomben_zeit": 0.0,
         "punkte": 0,
         "leben": 5,
         "ticks": 0,
@@ -42,7 +46,7 @@ def stern_neu_starten(stern, spiel):
     stern["x"] = random.randint(links, rechts)
 
 
-def aktualisieren(spiel, links=False, rechts=False):
+def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     if spiel["leben"] <= 0:
         return
     figur = spiel["figur"]
@@ -73,6 +77,34 @@ def aktualisieren(spiel, links=False, rechts=False):
                 break
 
 
+    if spiel["leben"] <= 0:
+        return
+
+    # Echte verstrichene Zeit: fünf Sekunden auch bei niedriger Bildrate.
+    spiel["bomben_zeit"] += delta_ms
+    while spiel["bomben_zeit"] >= BOMBEN_INTERVALL:
+        spiel["bomben_zeit"] -= BOMBEN_INTERVALL
+        spiel["bomben"].append({
+            "x": random.randint(BOMBEN_RADIUS, BREITE - BOMBEN_RADIUS),
+            "y": float(-BOMBEN_RADIUS),
+        })
+
+    for bombe in spiel["bomben"][:]:
+        vorher_y = bombe["y"]
+        bombe["y"] += spiel["tempo"]
+        # Kreis gegen Rechteck, inklusive des Weges seit dem letzten Bild.
+        naechstes_x = max(figur.left, min(bombe["x"], figur.right))
+        abstand_x = bombe["x"] - naechstes_x
+        abstand_y = max(figur.top - bombe["y"], vorher_y - figur.bottom, 0)
+        if abstand_x ** 2 + abstand_y ** 2 <= BOMBEN_RADIUS ** 2:
+            spiel["leben"] -= 1
+            spiel["bomben"].remove(bombe)  # Jede Bombe kostet nur ein Leben.
+            if spiel["leben"] == 0:
+                break
+        elif bombe["y"] - BOMBEN_RADIUS >= HOEHE:
+            spiel["bomben"].remove(bombe)  # Ausweichen kostet keine Leben.
+
+
 def zeichnen(fenster, schrift, spiel):
     fenster.fill((10, 20, 50))
     pygame.draw.rect(fenster, (100, 190, 255), spiel["figur"])
@@ -84,6 +116,12 @@ def zeichnen(fenster, schrift, spiel):
             zacken.append((stern["x"] + math.cos(winkel) * radius,
                            stern["y"] + math.sin(winkel) * radius))
         pygame.draw.polygon(fenster, (255, 220, 50), zacken)
+    for bombe in spiel["bomben"]:
+        mitte = (round(bombe["x"]), round(bombe["y"]))
+        pygame.draw.circle(fenster, (240, 55, 65), mitte, BOMBEN_RADIUS)
+        pygame.draw.line(fenster, (255, 190, 80),
+                         (mitte[0], mitte[1] - BOMBEN_RADIUS),
+                         (mitte[0] + 6, mitte[1] - BOMBEN_RADIUS - 8), 3)
     for text, y in [(f'Punkte: {spiel["punkte"]}', 20),
                     (f'Leben: {spiel["leben"]}', 60)]:
         fenster.blit(schrift.render(text, True, "white"), (20, y))
@@ -103,6 +141,7 @@ def main():
     spiel = neue_runde()
     laeuft = True
     while laeuft:
+        delta_ms = uhr.tick(60)
         for ereignis in pygame.event.get():
             if ereignis.type == pygame.QUIT:
                 laeuft = False
@@ -112,10 +151,9 @@ def main():
         if not laeuft:
             break
         tasten = pygame.key.get_pressed()
-        aktualisieren(spiel, tasten[pygame.K_LEFT], tasten[pygame.K_RIGHT])
+        aktualisieren(spiel, tasten[pygame.K_LEFT], tasten[pygame.K_RIGHT], delta_ms)
         zeichnen(fenster, schrift, spiel)
         pygame.display.flip()
-        uhr.tick(60)
     pygame.quit()
 
 
