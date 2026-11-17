@@ -1,4 +1,3 @@
-from array import array
 import math
 import random
 from pathlib import Path
@@ -15,35 +14,40 @@ BOMBEN_RADIUS = 18
 HIGHSCORE_DATEI = Path(__file__).resolve().with_name("highscore.txt")
 
 
-# Die Töne entstehen direkt im Code: keine zusätzlichen Audiodateien nötig.
+# Alle Pfade beziehen sich auf main.py, nicht auf das aktuelle Terminal-Verzeichnis.
+ASSET_ORDNER = Path(__file__).resolve().parent / "assets"
+BILDER = {}
 TOENE = {}
 
 
+def bilder_laden():
+    """Eigene transparente PNG-Dateien laden und auf Spielgrösse skalieren."""
+    for name, groesse in {"figur": (100, 25), "stern": (40, 40), "bombe": (48, 56)}.items():
+        pfad = ASSET_ORDNER / "bilder" / f"{name}.png"
+        try:
+            bild = pygame.image.load(str(pfad)).convert_alpha()
+            BILDER[name] = pygame.transform.smoothscale(bild, groesse)
+        except (pygame.error, OSError) as fehler:
+            raise RuntimeError(f"Bild fehlt oder ist unlesbar: {pfad}") from fehler
+
+
 def toene_vorbereiten():
+    """WAV-Dateien laden. Audiofehler sichtbar melden, aber weiterspielen."""
+    TOENE.clear()
     try:
         if not pygame.mixer.get_init():
-            pygame.mixer.init(frequency=44100, size=-16, channels=1)
-        rate, formatierung, kanaele = pygame.mixer.get_init()
-        if formatierung != -16:
-            return
-        melodien = {
-            "fangen": [(880, 0.07), (1320, 0.10)],
-            "verlust": [(330, 0.10), (220, 0.15)],
-            "sterben": [(440, 0.15), (330, 0.15), (165, 0.40)],
-            "bombe": [(110, 0.12), (65, 0.22)],
-        }
-        for name, noten in melodien.items():
-            samples = array("h")
-            for frequenz, dauer in noten:
-                anzahl = int(rate * dauer)
-                for i in range(anzahl):
-                    # Kurzes Ein-/Ausblenden verhindert Klickgeräusche.
-                    huelle = min(1.0, i / (rate * 0.01), (anzahl - 1 - i) / (rate * 0.02))
-                    wert = int(7000 * huelle * math.sin(2 * math.pi * frequenz * i / rate))
-                    samples.extend([wert] * kanaele)
-            TOENE[name] = pygame.mixer.Sound(buffer=samples.tobytes())
+            pygame.mixer.init(frequency=44100, size=-16, channels=2)
+        print("Audio initialisiert:", pygame.mixer.get_init())
     except pygame.error as fehler:
         print(f"Audio nicht verfügbar; das Spiel läuft ohne Ton: {fehler}")
+        return
+    for name in ("fangen", "verlust", "sterben", "bombe"):
+        pfad = ASSET_ORDNER / "sounds" / f"{name}.wav"
+        try:
+            TOENE[name] = pygame.mixer.Sound(str(pfad))
+            TOENE[name].set_volume(0.7)
+        except (pygame.error, OSError) as fehler:
+            print(f"Ton konnte nicht geladen werden: {pfad}: {fehler}")
 
 
 def ton_spielen(name):
@@ -202,21 +206,13 @@ def zeichnen(fenster, schrift, spiel):
             bild = schrift.render(text, True, farbe)
             fenster.blit(bild, bild.get_rect(center=(BREITE // 2, y)))
         return
-    pygame.draw.rect(fenster, (100, 190, 255), spiel["figur"])
+    fenster.blit(BILDER["figur"], spiel["figur"])
     for stern in spiel["sterne"]:
-        zacken = []
-        for i in range(10):
-            winkel = math.radians(-90 + i * 36)
-            radius = RADIUS if i % 2 == 0 else RADIUS * 0.45
-            zacken.append((stern["x"] + math.cos(winkel) * radius,
-                           stern["y"] + math.sin(winkel) * radius))
-        pygame.draw.polygon(fenster, (255, 220, 50), zacken)
+        bild = BILDER["stern"]
+        fenster.blit(bild, bild.get_rect(center=(round(stern["x"]), round(stern["y"]))))
     for bombe in spiel["bomben"]:
-        mitte = (round(bombe["x"]), round(bombe["y"]))
-        pygame.draw.circle(fenster, (240, 55, 65), mitte, BOMBEN_RADIUS)
-        pygame.draw.line(fenster, (255, 190, 80),
-                         (mitte[0], mitte[1] - BOMBEN_RADIUS),
-                         (mitte[0] + 6, mitte[1] - BOMBEN_RADIUS - 8), 3)
+        # Der runde Körper liegt bei (24, 36); die Zündschnur zählt nicht als Treffer.
+        fenster.blit(BILDER["bombe"], (round(bombe["x"]) - 24, round(bombe["y"]) - 36))
     for text, y in [(f'Punkte: {spiel["punkte"]}', 20),
                     (f'Leben: {spiel["leben"]}', 60)]:
         fenster.blit(schrift.render(text, True, "white"), (20, y))
@@ -233,10 +229,11 @@ def zeichnen(fenster, schrift, spiel):
 
 
 def main():
-    pygame.mixer.pre_init(44100, -16, 1, 512)
+    pygame.mixer.pre_init(44100, -16, 2, 512)
     pygame.init()
     toene_vorbereiten()
     fenster = pygame.display.set_mode((BREITE, HOEHE))
+    bilder_laden()
     pygame.display.set_caption("Sternenfänger")
     schrift = pygame.font.Font(None, 36)
     uhr = pygame.time.Clock()
