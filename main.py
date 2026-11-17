@@ -10,6 +10,8 @@ SPIELER_TEMPO = 6
 BOMBEN_INTERVALL = 5000  # Fünf Sekunden Spielzeit; bei höherem Tempo kürzer.
 BOMBEN_RADIUS = 18
 BOMBEN_SCHADEN = 2
+BOMBEN_ABSTAND_MIN = 200  # Zufälliger Abstand innerhalb einer Welle (Spielzeit in ms).
+BOMBEN_ABSTAND_MAX = 600
 PUNKTE_PRO_EXTRA_BOMBE = 15
 
 
@@ -101,6 +103,8 @@ def neue_runde(highscore=None):
         "sterne": sterne,
         "bomben": [],
         "bomben_zeit": 0.0,
+        "bomben_naechste_welle": float(BOMBEN_INTERVALL),
+        "bomben_geplant": [],
         "punkte": 0,
         "highscore": highscore_laden() if highscore is None else highscore,
         "speicherfehler": False,
@@ -165,21 +169,34 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
     if spiel["leben"] <= 0:
         return
 
-    # Auch Bomben erscheinen bei höherem Spieltempo häufiger.
+    # Spielzeit: Wellen alle fünf Sekunden, einzelne Bomben zeitlich versetzt.
+    vorherige_zeit = spiel["bomben_zeit"]
     spiel["bomben_zeit"] += schritt * (1000 / 60)
-    while spiel["bomben_zeit"] >= BOMBEN_INTERVALL:
-        spiel["bomben_zeit"] -= BOMBEN_INTERVALL
-        # 0–14 Punkte: 1 Bombe, 15–29: 2 Bomben, ab 30: 3 usw.
+    while spiel["bomben_zeit"] >= spiel["bomben_naechste_welle"]:
+        startzeit = spiel["bomben_naechste_welle"]
+        spiel["bomben_naechste_welle"] += BOMBEN_INTERVALL
         anzahl = 1 + spiel["punkte"] // PUNKTE_PRO_EXTRA_BOMBE
         for _ in range(anzahl):
-            spiel["bomben"].append({
-                "x": random.randint(BOMBEN_RADIUS, BREITE - BOMBEN_RADIUS),
-                "y": float(-BOMBEN_RADIUS),
-            })
+            startzeit += random.randint(BOMBEN_ABSTAND_MIN, BOMBEN_ABSTAND_MAX)
+            spiel["bomben_geplant"].append(startzeit)
+
+    for startzeit in sorted(spiel["bomben_geplant"]):
+        if startzeit > spiel["bomben_zeit"]:
+            break
+        spiel["bomben_geplant"].remove(startzeit)
+        spiel["bomben"].append({
+            "x": random.randint(BOMBEN_RADIUS, BREITE - BOMBEN_RADIUS),
+            "y": float(-BOMBEN_RADIUS),
+            "startzeit": startzeit,
+        })
 
     for bombe in spiel["bomben"][:]:
         vorher_y = bombe["y"]
-        bombe["y"] += spiel["tempo"] * schritt
+        # Neue Bomben bewegen sich nur für den bereits verstrichenen Teil des Bildes.
+        aktive_ms = spiel["bomben_zeit"] - max(
+            vorherige_zeit, bombe.get("startzeit", vorherige_zeit)
+        )
+        bombe["y"] += spiel["tempo"] * aktive_ms / (1000 / 60)
         # Kreis gegen Rechteck, inklusive des Weges seit dem letzten Bild.
         naechstes_x = max(figur.left, min(bombe["x"], figur.right))
         abstand_x = bombe["x"] - naechstes_x
@@ -204,7 +221,7 @@ def zeichnen(fenster, schrift, spiel):
         fenster.blit(titel, titel.get_rect(center=(BREITE // 2, 205)))
         for text, y, farbe in [
             ("Drücke Leertaste zum starten", 295, (255, 255, 255)),
-            ("Pfeiltasten: bewegen | Sterne fangen", 355, (160, 205, 255)),
+            ("Pfeiltasten / A und D: bewegen", 355, (160, 205, 255)),
             ("Roten Bomben ausweichen!", 395, (255, 130, 130)),
             (f'Highscore: {spiel["highscore"]}', 465, (255, 220, 50)),
         ]:
@@ -228,7 +245,7 @@ def zeichnen(fenster, schrift, spiel):
         fenster.blit(warnung, (20, 140))
     if spiel["leben"] == 0:
         for text, y in [("Game Over", 280),
-                        ("Leertaste: neue Runde", 325)]:
+                        ("R: neue Runde", 325)]:
             bild = schrift.render(text, True, "white")
             fenster.blit(bild, bild.get_rect(center=(400, y)))
 
@@ -249,19 +266,24 @@ def main():
         for ereignis in pygame.event.get():
             if ereignis.type == pygame.QUIT:
                 laeuft = False
-            elif ereignis.type == pygame.KEYDOWN and ereignis.key == pygame.K_SPACE:
-                if spiel["leben"] == 0:
+            elif ereignis.type == pygame.KEYDOWN:
+                if ereignis.key == pygame.K_r and spiel["leben"] == 0:
                     alter_rekord = spiel["highscore"]
                     speicherfehler = spiel["speicherfehler"]
                     spiel = neue_runde(alter_rekord)
                     spiel["speicherfehler"] = speicherfehler
                     spiel["gestartet"] = True
-                elif not spiel["gestartet"]:
+                elif ereignis.key == pygame.K_SPACE and not spiel["gestartet"]:
                     spiel["gestartet"] = True
         if not laeuft:
             break
         tasten = pygame.key.get_pressed()
-        aktualisieren(spiel, tasten[pygame.K_LEFT], tasten[pygame.K_RIGHT], delta_ms)
+        aktualisieren(
+            spiel,
+            tasten[pygame.K_LEFT] or tasten[pygame.K_a],
+            tasten[pygame.K_RIGHT] or tasten[pygame.K_d],
+            delta_ms,
+        )
         zeichnen(fenster, schrift, spiel)
         pygame.display.flip()
     pygame.quit()
