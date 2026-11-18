@@ -13,6 +13,10 @@ BOMBEN_SCHADEN = 2
 BOMBEN_ABSTAND_MIN = 200  # Zufälliger Abstand innerhalb einer Welle (Spielzeit in ms).
 BOMBEN_ABSTAND_MAX = 600
 PUNKTE_ERSTE_EXTRA_BOMBE = 15
+MAX_LEBEN = 5
+HERZ_RADIUS = 18
+HERZ_PUNKTE_MIN = 15
+HERZ_PUNKTE_MAX = 25
 MAGNET_PUNKTE = 50
 MAGNET_DAUER_MS = 10000  # Echte Spielsekunden, unabhängig vom Zeitfaktor.
 MAGNET_RADIUS = 18
@@ -107,6 +111,8 @@ def neue_runde(highscore=None):
         "sterne": sterne,
         "bomben": [],
         "magnete": [],
+        "herzen": [],
+        "herz_naechste_punkte": random.randint(HERZ_PUNKTE_MIN, HERZ_PUNKTE_MAX),
         "magnet_rest_ms": 0.0,
         "magnet_naechste_punkte": MAGNET_PUNKTE,
         "bomben_zeit": 0.0,
@@ -115,7 +121,7 @@ def neue_runde(highscore=None):
         "punkte": 0,
         "highscore": highscore_laden() if highscore is None else highscore,
         "speicherfehler": False,
-        "leben": 5,
+        "leben": MAX_LEBEN,
         "ticks": 0,
         "tempo": 3.0,
     }
@@ -181,6 +187,22 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
         elif magnet["y"] - MAGNET_RADIUS >= HOEHE:
             spiel["magnete"].remove(magnet)  # Kein Lebensverlust bei verpasstem Bonus.
 
+    # Herzen fallen wie Sterne; verpasste Herzen kosten keine Leben.
+    for herz in spiel["herzen"][:]:
+        vorher_y = herz["y"]
+        herz["y"] += spiel["tempo"] * schritt
+        bereich = pygame.Rect(
+            herz["x"] - HERZ_RADIUS, vorher_y - HERZ_RADIUS,
+            HERZ_RADIUS * 2,
+            math.ceil(herz["y"] - vorher_y + HERZ_RADIUS * 2),
+        )
+        if figur.colliderect(bereich):
+            spiel["leben"] = min(MAX_LEBEN, spiel["leben"] + 1)
+            spiel["herzen"].remove(herz)
+            ton_spielen("fangen")
+        elif herz["y"] - HERZ_RADIUS >= HOEHE:
+            spiel["herzen"].remove(herz)
+
     spiel["ticks"] += 1
     if spiel["ticks"] % 60 == 0:
         spiel["tempo"] *= 1.0001  # Weiterhin +0,01 % alle 60 Ticks.
@@ -205,6 +227,15 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
                     "y": float(-MAGNET_RADIUS),
                 })
                 spiel["magnet_naechste_punkte"] += MAGNET_PUNKTE
+            while spiel["punkte"] >= spiel["herz_naechste_punkte"]:
+                spiel["herzen"].append({
+                    "x": random.randint(HERZ_RADIUS, BREITE - HERZ_RADIUS),
+                    "y": float(-HERZ_RADIUS),
+                })
+                # Jeder weitere Abstand wird unabhängig neu ausgewürfelt.
+                spiel["herz_naechste_punkte"] += random.randint(
+                    HERZ_PUNKTE_MIN, HERZ_PUNKTE_MAX
+                )
             ton_spielen("fangen")
             rekord_pruefen(spiel)
             if spiel["punkte"] % 5 == 0:
@@ -265,6 +296,18 @@ def aktualisieren(spiel, links=False, rechts=False, delta_ms=1000 / 60):
             spiel["bomben"].remove(bombe)  # Ausweichen kostet keine Leben.
 
 
+def herz_zeichnen(fenster, x, y):
+    """Rosa Herz mit hellem Glanz, ohne zusätzliche Asset-Datei."""
+    x, y = round(x), round(y)
+    farbe = (255, 95, 135)
+    pygame.draw.circle(fenster, farbe, (x - 8, y - 6), 10)
+    pygame.draw.circle(fenster, farbe, (x + 8, y - 6), 10)
+    pygame.draw.polygon(fenster, farbe, [
+        (x - 17, y - 2), (x + 17, y - 2), (x, y + 18)
+    ])
+    pygame.draw.circle(fenster, (255, 210, 225), (x - 10, y - 9), 3)
+
+
 def magnet_zeichnen(fenster, x, y):
     """Kleines Hufeisen-Symbol; keine zusätzliche Bilddatei nötig."""
     x, y = round(x), round(y)
@@ -288,7 +331,8 @@ def zeichnen(fenster, schrift, spiel):
             ("A/D oder Links/Rechts: bewegen", 355, (160, 205, 255)),
             ("Roten Bomben ausweichen!", 395, (255, 130, 130)),
             ("Alle 50 Punkte: Magnet fangen (10 s)", 430, (100, 235, 255)),
-            (f'Highscore: {spiel["highscore"]}', 475, (255, 220, 50)),
+            ("Alle 15–25 Punkte: Herz fangen (+1 Leben)", 465, (255, 145, 175)),
+            (f'Highscore: {spiel["highscore"]}', 510, (255, 220, 50)),
         ]:
             bild = schrift.render(text, True, farbe)
             fenster.blit(bild, bild.get_rect(center=(BREITE // 2, y)))
@@ -296,6 +340,8 @@ def zeichnen(fenster, schrift, spiel):
     if spiel["magnet_rest_ms"] > 0:
         pygame.draw.ellipse(fenster, (70, 210, 240), spiel["figur"].inflate(24, 18), 2)
     fenster.blit(BILDER["figur"], spiel["figur"])
+    for herz in spiel["herzen"]:
+        herz_zeichnen(fenster, herz["x"], herz["y"])
     for magnet in spiel["magnete"]:
         magnet_zeichnen(fenster, magnet["x"], magnet["y"])
     if spiel["magnet_rest_ms"] > 0:
